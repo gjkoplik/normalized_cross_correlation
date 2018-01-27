@@ -1,0 +1,71 @@
+\documentclass[12pt]{extreport}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{relsize}
+\usepackage{listings}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{pgfplots}
+\usepackage{tikz}
+\usepackage{caption}
+\usetikzlibrary{arrows, calc, angles, quotes}
+\lstset{language = R}
+\setlength{\parindent}{0cm}
+
+
+\graphicspath{./}
+
+\renewcommand{\qed}{$ \hspace{4ex} _\blacksquare $}
+\renewcommand{\hat}{\widehat}
+\renewcommand{\bar}{\overline}
+
+\begin{document}
+
+	\begin{flushright}
+		Gary Koplik
+		
+		Winter, 2018
+		
+		Normalized Cross Correlation Project
+		
+	\end{flushright}
+
+\qquad
+
+\qquad
+
+\begin{center}
+	\begin{tikzpicture}
+	\coordinate (origin) at (0,0);
+	\draw[ultra thick, black, ->] (origin) -- ++(-4, 3) node(t)[black, left]
+		{$\vec{t}$};
+	\end{tikzpicture}
+	\qquad \qquad \qquad
+	\begin{tikzpicture}
+	\coordinate (origin) at (0,0);
+	\draw[ultra thick, black, ->] (origin) -- ++(3, 4) node(w)[black, right] 
+		{$\vec{w}$};	
+	
+	\end{tikzpicture}
+\end{center}
+
+\qquad
+
+\qquad
+
+\begin{center}
+	\begin{tikzpicture}
+	\coordinate (origin) at (0,0);
+	\draw[ultra thick, black, ->] (origin) -- ++(-4, 3) node(t)[black, left]
+		{$\vec{t}$};
+	\draw[ultra thick, black, ->] (origin) -- ++(3, 4) node(w)[black, right] 
+		{$\vec{w}$};
+	\pic [draw, -, "$\theta$", angle eccentricity=1.5] {angle = w--origin--t};
+	\end{tikzpicture}
+\end{center}
+
+\end{document}	
