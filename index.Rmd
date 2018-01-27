@@ -1,0 +1,389 @@
+---
+title: "Object Detection via Normalized Cross Correlation"
+author: "Gary Koplik"
+date: "Winter, 2018"
+output:
+  html_document:
+    theme: "flatly"
+    toc: true
+    toc_depth: 2
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+---
+
+<script>
+   $(document).ready(function() {
+     $head = $('#header');
+     $head.prepend('<img src=\"top_figure.png\" style=\"float: right;height: 700px;width=450px\"/>')
+   });
+</script>
+
+Computer Vision experts have long focused on object detection, which asks the question:
+
+<br>
+
+<center> <i> <b>
+Given an image and an object, how do we automate the detection of that object in the image?
+</b> </i> </center>
+
+<br>
+
+Object detection is a highly-developed field of research with a variety of methodologies. For example, [here](https://www.learnopencv.com/handwritten-digits-classification-an-opencv-c-python-tutorial/) 
+is a fantastic write-up on the classfication of MNIST handwritten digits using image cleanup, feature extraction with Histograms of Oriented Gradients, and classification with Support Vector Machines.
+
+Some methods are more [black-box](https://en.wikipedia.org/wiki/Black_box) 
+deep learning techniques. For example,
+[here](https://www.mathworks.com/matlabcentral/answers/uploaded_files/82075/AN1.pdf)
+is a paper using deep convolutional neural networks for detection with medical images.
+
+In this project, I will go through the math and implementation of Normalized Cross Correlation with a toy example. This methodology is straightforward to understand (the only math we really need is the dot product), but with the tradeoff of being far less generalizable (more on this later).
+
+The toy example and all algorithms used in this project were implemented in Python. You can find all of my code up on my [Github Page](https://github.com/gjkoplik/normalized_cross_correlation).
+
+## Setting Up the Toy Example: Triangles
+
+The basis of this toy example will be a simple black triangle:
+
+<center>
+![](./images/triangle.png)
+</center>
+
+By modifying this triangle via, scaling, rotation, and shearing, we can generate an image of multiple different triangles:
+
+<center>
+![](./images/image.png){width=60%}
+</center>
+
+We will try to detect all of the triangles in this image.
+
+<br>
+
+## The Math Behind Cross Correlation (2 Dimensions)
+
+What does it mean for two images to be "similar" to each other?
+
+At the most basic level, it means the <i>pixels</i> in specific spots are similar to each other in the two images.
+
+In reality we could have similar shapes that are different colors e.g. two squares where one is bright red and one is bright blue, but we will not focus on this issue here. We will  focus on detecting shapes of similar brightness, so we will avoid any issues with color by putting everything in grayscale (though this methodology would work for colors by implementing this methodology separately on red, green, and blue values then combining the results).
+
+Let's abstract away from images for a second and think of a more straightforward generalization. Suppose we want to compare the similarity of two vectors, $\vec{t}$ and $\vec{w}$:
+
+<center>
+![](./images/t_w.png)
+</center>
+
+A good way to do this is by looking at the angle $\theta$ between the two vectors:
+
+<center>
+![](./images/t_w_angle.png)
+</center>
+
+We can think of two vectors being more "similar" if the angle between the two vectors is smaller.
+
+However, we don't need to calculate the actual angle to find a proportional measure of this similarity. Recall the definition of dot product is:
+
+$$\vec{t} \bullet \vec{w} = || \vec{t} || \cdot || \vec{w} || \cdot cos(\theta)$$
+
+Therefore, we can say:
+
+$$\vec{t} \bullet \vec{w} \propto cos(\theta)$$
+Since we're trying to minimize $\theta$ and the angle between two vectors is no more than 180 degrees, in order to minimize $\theta$, we therefore must maximize $cos(\theta)$
+
+```{r, echo = F, message = F, warning = F, fig.align = 'center', fig.width = 5, fig.height = 3, cache = T}
+library(ggplot2)
+library(ggthemes)
+
+x <- seq(0, pi, by = 0.01)
+y <- cos(x)
+
+ggplot() +
+  geom_line(aes(x = x, y = y)) +
+  theme_tufte() +
+  ylab(expression(paste("Cos(", theta, ")"))) +
+  scale_x_continuous(name = expression(theta),
+                   breaks = c(0, pi),
+                   labels = c("0 degrees", "180 degrees")) +
+  ggtitle(expression(paste("Cos(", theta, ") is Maximized When ", theta, " is Minimized"))) +
+  theme(plot.title = element_text(hjust = 0.5))
+  # xlab(expression(theta))
+
+```
+
+Thus, given $\vec{t}$ and $\vec{w}$ of fixed length, a larger value of
+$\vec{t} \bullet \vec{w}$ implies a smaller angle $\theta$ between $\vec{t}$ and $\vec{w}$ and therefore a greater similarity between $\vec{t}$ and $\vec{w}$
+
+<br>
+
+## Using Cross Correlation to Detect Triangles
+
+Now, let's extend this idea of similarity of vectors to our detection problem.
+
+Let's start with a generic triangle, or <i><u>tempate</i></u>:
+
+<center>
+![](./images/template.png)
+</center>
+
+(more on why the edges are blurred in a moment)
+
+Let's generalize our thinking about the two-dimensional vectors $\vec{t}$ and $\vec{w}$ to this scenario. This template image is 260 x 180 pixels, but we can think of that as our vector $\vec{t}$, which will be a 260 $\cdot$ 180 = 46,800-dimensional vector with pixel values $\vec{t} = [t_1, t_2, \ldots, t_{46800}]$
+
+We can compare this to a <i><u>window</u></i> of size 260 x 180 pixels, which we can also express as a 46,800-dimensional vector $\vec{w} = [w_1, w_2, \ldots, w_{46800}]$
+
+If we take the dot product of these two vectors $\vec{t}$ and $\vec{w}$, larger values suggest more similar vectors. As long as we arrange the template and the window into column vectors using the same ordering, more similar vectors therefore imply more similar images.
+
+By comparing this template of a triangle to windows throughout the image, we should be able to detect triangles as areas where the windows dotted with the template result in relatively high values. This form of detection is called <i><u>cross correlation</i></u>.
+
+You might be wondering why we blur the edges of the template triangle. Blurring the edges allows for sufficiently high similarities to be detected even if the objects of interest have more variable shapes. In other words, blurring the edges to create a <i>generalized</i> object allows this methodology to better detect all of the objects, not just one with for example, one type of edges. This is not as important in this toy example since all of the edges are straight; however, this is an important step in almost any real-world example where the objects of interest have variable shapes, so we will implement it here to better-generalize this methodology.
+
+<br>
+
+## Implementing Cross Correlation
+
+Now we can get into the logistics of implementation. When we say "windows throughout the image," we mean we will take the dot product of the template with a window centered at <i>every</i> pixel in the image.
+
+This creates one clear problem, what do we do about the edges?
+
+An easy way to solve this problem is to <i><u>pad</i></u> the image with enough pixels around the edges so that each window has a full set of pixel values, even if that window is on the edge of the image.
+
+Since the triangles are black, let's pad the image with white pixels. It turns out that although this choice works well here, it will actually cause us problems later when we modify this methodology, but more on that later.
+
+Now that we can take all of our dot products between our template and every possible window, we simply need to store the resulting values as pixel values for our cross-correlation image, which will be the same size as our original image:
+
+<center>
+![](./images/image.png){width=40%} ![](./images/conv_image.png){width=40%}
+</center>
+
+Yellow values are higher than blue values in this color scheme, so this looks promising so far! Now, we need to discuss how to use this figure to detect the triangles.
+
+## Using Non-Maximum Suppression to Detect Triangles
+
+The key to detection for us using the cross-correlation image is a technique called <i><u>non-maximum suppression</i></u>.
+
+The basic idea of non-maximum suppression is to repeat the following process:
+
+- Find the largest pixel value $p$ in the entire image
+
+- Store the location of $p$ as a triangle, then set the window of values centered at $p$ to zero
+
+This second step is critical to avoid re-detecting the same triangle. For example, after we find the brightest pixel in the entire image, it's fairly likely the next brightest pixel is the pixel right next to the one we just found, which would certainly be part of the same triangle.
+
+We have to be careful though when deciding on the size of the window that we will set to zero at each step--- too large and we'll miss triangles, but too small and we'll double count triangles.
+
+Furthermore, we have to set a <i><u>threshold</i></u> for detection. Without any threshold, this process will continue until it's marking blank spaces as triangles. Just like with setting the zeroing window size, this thresholding will require some calibration.
+
+With a little trial and error in calibrating, however, we get pretty good results:
+
+<center>
+![](./images/image_points.png){width=60%}
+</center>
+
+As expected given the nature of non-maximum suppression, triangles that are on top of each other get marked as one triangle and then zero out the area, thus missing the second triangle each time, but otherwise this methodology performs its task well. This example, however, is unrealistically simple, in particular thanks to the high contrast between the triangles and the background.
+
+<br>
+
+## Breaking Cross Correlation with a More Complicated Example
+
+Ruining the performance of cross correlation is quite simple. To demonstrate, I've taken the same image as before and changed the background to shift from white to black along the diagonal of the image:
+
+<center>
+![](./images/background.png){width=60%}
+</center>
+
+After padding the image with a white border and running the cross correlation with our template, here is the result of trying several thresholds to detect the triangles:
+
+<center>
+![](./images/background_points_conv_4500.png){width=50%}![](./images/background_points_conv_4000.png){width=50%}![](./images/background_points_conv_3000.png){width=50%}![](./images/background_points_conv_2000.png){width=50%}
+</center>
+
+As you can see, we now have a major issue with <u><i>false positives</u></i>. In fact, in the image on the top-left, we can see with a more aggressive threshold, we <i> only </i> find a single false positive. Based on the other three images, we can only detect a majority of the triangles if we are also willing to accept a large number of false positives. These thresholding issues aren't particularly surprising when you see the extent to which the darker parts of the background light up in the cross correlation image:
+
+<center>
+![](./images/conv_background.png){width=40%}
+</center>
+
+  
+
+The bottom right corner is so bright that non-maximum suppression almost exclusively focuses on that area before actually finding triangles.
+
+<br>
+
+## The Fix: Normalized Cross Correlation
+
+As you can probably guess, <i><u>normalized cross correlation</i></u> is similar to cross correlation. The difference is we first <i> mean-center </i> and then <i> normalize </i> both the template and the window before taking each dot product.
+
+Mean-centering makes cross correlation insensitive to changes in <i>brightness</i>. Normalization makes the methodology insensitive to changes in <i>contrast</i>.
+
+The key here is to mean-center and normalize each window of the image <i>individually</i>--- we are <u>not</u> mean-centering and normalizing the entire image at once.
+
+To demonstrate the effect of this, let's look at two triangles from the original image:
+
+<center>
+![](./images/select_triangles.png)
+</center>
+
+Taking a closer look, we can see in particular that the contrast between each triangle and its background is noticeably different:
+
+<center>
+![](./images/window_top_left.png){width=35%}![](./images/window_bottom_right.png){width=35%}
+</center>
+
+If we look at the two mean-centered and normalized images, however, we see they look quite similar:
+
+<center>
+![](./images/window_top_left_norm.png){width=35%}![](./images/window_bottom_right_norm.png){width=35%}
+</center>
+
+Furthermore, we can see that the normalized template also looks like the normalized windows:
+
+<center>
+![](./images/template_norm.png)
+</center>
+
+This is a critical improvement because it means that this methodology should have similar performance in both light and dark backgrounds as long as there is at least some contrast between each triangle and its background.
+
+Looking at the results of running the normalized cross correlation, we see a noticeable improvement:
+
+<center>
+![](./images/cross_cor.png){width=60%}
+</center>
+
+We no longer have the bottom right corner of the background lighting up like a Christmas tree. In fact, the background in areas without triangles appears to be both low-magnitude and consistent throughout the normalized cross correlation image.
+
+When we run non-maximum suppression on this, we still do not get perfect results, but the improvement is substantial:
+
+<center>
+![](./images/cross_cor_points_0.35.png){width=50%}![](./images/cross_cor_points_0.2.png){width=50%}
+</center>
+
+We can avoid any false positives while detecting nearly all of the triangles. When we try to detect one of the last two undetected triangles, though, we get multiple false negatives (although we also manage to detect a couple of the overlapping triangles).
+
+## Modifications to Improve Detection
+
+There are still a few things we can do to improve our performance on this example.
+
+### Modifying Our Template.
+
+The results below are from implementing non-maximum suppression after running normalized cross correlation with a template rotated 180 degrees and scaled down by 0.6 from the template we had been using:
+
+<center>
+![](./images/cross_cor_points_new_template_0.4.png){width=50%}![](./images/cross_cor_points_new_template_0.38.png){width=50%}
+</center>
+
+The smaller, rotated template gives us a slight improvement from before. As these two images show, we can detect all of the triangles (other than the ones overlapping each other) in the image on the right if we tolerate one false positive, and the image on the left shows we lose a true positive before we can eliminate the false positive.
+
+### Take the Best Results Using Multiple Templates
+
+We could also run normalized cross correlation multiple times using templates with various scales and orientations and then take the maximum correlation value at each pixel from each template to make a maximum correlation image.
+
+Implementing non-maximum suppression on this maximum correlation image can improve results dramatically when there is substantial variation in the size and positioning of the objects which we are trying to detect; however, as our results so far show, we are not having issues detecting the objects using just one template. This methodology although generally useful will not do us much good here.
+
+### Pad the Edges with the Same Edge Values Instead of White
+
+Take a look at the correlation image made using the flipped and scaled down template:
+
+<center>
+![](./images/cross_cor_new_template.png){width=60%}
+</center>
+
+Scaling down the template in particular appears to have really improved the distinctness of each triangle relative to the background. This is especially noticeable looking at the bottom right triangles on this cross correlation image relative to the earlier cross correlation image from the original template.
+
+The reason there's still a problem though is the edges. Look at how bright the bottom and right edges are. Remember when we chose to pad our image with a seemingly innocent white background because our triangles are black? That was useful when we were running our un-normalized correlations because brightness still had meaning, which made the white padding distinct from any black triangles of interest. After mean-centering and normalizing each window, however, the high contrast between the dark background and the white padding on the bottom and right edges of the image is creating an edge that is similar to our mean-centered and normalized template. If we can eliminate these bright edges on our normalized cross correlation image, we should be able to detect the last triangle without any false positives.
+
+Now that we're mean-centering and normalizing, it's advantageous for us to pad using the same edge values. This is done by replicating the edge pixel values outward in one direction and then repeating this process in the other direction. For example, if we took the matrix below and padded it with edge values 2 pixels thick, the process of padding would go like so:
+
+$$
+\begin{bmatrix}
+\color{red}1 & \color{red}2 & \color{red}3 & \color{red}4 \\
+\color{red}5 & \color{red}6 & \color{red}7 & \color{red}8 \\
+\color{red}9 & \color{red}{10} & \color{red}{11} & \color{red}{12} \\
+\color{red}{13} & \color{red}{14} & \color{red}{15} & \color{red}{16} \\
+\end{bmatrix} \\
+\downarrow \\
+\begin{bmatrix}
+\boldsymbol{1} & \boldsymbol{1} &
+  \color{red}1 & \color{red}2 & \color{red}3 & \color{red}4 &
+    \boldsymbol{4} & \boldsymbol{4} \\
+\boldsymbol{5} & \boldsymbol{5} &
+  \color{red}5 & \color{red}6 & \color{red}7 & \color{red}8 &
+    \boldsymbol{8} & \boldsymbol{8} \\
+\boldsymbol{9} & \boldsymbol{9} &
+  \color{red}9 & \color{red}{10} & \color{red}{11} & \color{red}{12} &
+    \boldsymbol{12} & \boldsymbol{12} \\
+\boldsymbol{13} & \boldsymbol{13} &
+  \color{red}{13} & \color{red}{14} & \color{red}{15} & \color{red}{16} &
+    \boldsymbol{16} & \boldsymbol{16} \\
+\end{bmatrix} \\
+\downarrow \\
+\begin{bmatrix}
+\boldsymbol{1} & \boldsymbol{1} & \boldsymbol{1} & \boldsymbol{2} &
+  \boldsymbol{3} & \boldsymbol{4} & \boldsymbol{4} & \boldsymbol{4} \\
+\boldsymbol{1} & \boldsymbol{1} & \boldsymbol{1} & \boldsymbol{2} &
+  \boldsymbol{3} & \boldsymbol{4} & \boldsymbol{4} & \boldsymbol{4} \\
+\boldsymbol{1} & \boldsymbol{1} &
+  \color{red}1 & \color{red}2 & \color{red}3 & \color{red}4 &
+    \boldsymbol{4} & \boldsymbol{4} \\
+\boldsymbol{5} & \boldsymbol{5} &
+  \color{red}5 & \color{red}6 & \color{red}7 & \color{red}8 &
+    \boldsymbol{8} & \boldsymbol{8} \\
+\boldsymbol{9} & \boldsymbol{9} &
+  \color{red}9 & \color{red}{10} & \color{red}{11} & \color{red}{12} &
+    \boldsymbol{12} & \boldsymbol{12} \\
+\boldsymbol{13} & \boldsymbol{13} &
+  \color{red}{13} & \color{red}{14} & \color{red}{15} & \color{red}{16} &
+    \boldsymbol{16} & \boldsymbol{16} \\
+\boldsymbol{13} & \boldsymbol{13} & \boldsymbol{13} & \boldsymbol{14} &
+  \boldsymbol{15} & \boldsymbol{16} & \boldsymbol{16} & \boldsymbol{16} \\
+\boldsymbol{13} & \boldsymbol{13} & \boldsymbol{13} & \boldsymbol{14} &
+  \boldsymbol{15} & \boldsymbol{16} & \boldsymbol{16} & \boldsymbol{16} \\
+\end{bmatrix}$$
+
+
+There are several other ways to pad that would also work. For more information, check out the [Python documentation](https://docs.scipy.org/doc/numpy-1.13.0/reference/generated/numpy.pad.html) on padding.
+
+When we run normalized cross correlation using this padding instead of white padding, the bright edges on the correlation image almost entirely disappear:
+
+<center>
+![](./images/cross_cor_new_padding.png){width=60%}
+</center>
+
+Now, we can finally calibrate the threshold to perform as well as possible under a non-maximum suppression methodology:
+
+<center>
+![](./images/cross_cor_points_new_padding_0.36.png){width=60%}
+</center>
+
+<br>
+
+## Can We Perform Well Over Multiple Images?
+
+This write-up was motivated as a discussion of the <i>automation</i> of object detection, but it's certainly not perfectly automated. There was a substantial amount of calibration required to achieve the success above, including:
+
+* Should we use one template, or should we take the maximum correlation of multiple scalings and rotations?
+
+* What should we use as the shape for our template? How much should we blur it?
+
+* If we do multiple scalings and rotations, how many of each should we do? Include templates that are too small and we're more likely to get false positives from other objects, but too large and we'll miss the small objects. Similarly, too many rotations could induce more false positives, but too few rotations might miss some orientations.
+
+* How big a window should we zero out in each iteration of non-maximum suppression? Too small and we'll double count larger objects, but too big and we'll miss objects close to each other, even if they don't overlap.
+
+* What threshold should we use for identifying triangles when implementing non-maximum suppression?
+
+With all of the parameters that require a "not too small, but not too large" value for this methodology to perform well, the overarching question we need to ask here is:
+
+<center>
+<b><i>Can our methodology perform well over multiple images?</i></b></center><br>
+This methodology will certainly fail to generalize in many cases. For example, too much variation in the images would likely prevent the parameters from calibrating in a way that would allow for strong performance over all the images. That being said, there are also plenty of detection problems, especially in biology and medicine, where the images are similar enough that the parameters can be calibrated to result in high-accuracy detection over a set of images.
+
+So why should we use this methodology over fancier, black-box algorithms?
+
+There are some situations, especially in healthcare, where knowing <i>why</i> an algorithm does or does not detect something is important. It's usually impossible to determine why complicated machine learning algorithms like convolutional neural nets fail in some situations, but normalized cross correlation is fully interpretable.
+
+<br>
+
+## Acknowledgements
+
+This project was inspired by a discussion of normalized cross correlation in Carlo Tomasi's Computer Vision class (Computer Science 527) at Duke in the Fall of 2017, where he went through an example detecting triangle-shaped [denticles](http://www.genetics.org/content/genetics/169/4/2075/F1.large.jpg)
+on images of fly embryos (thus my use of triangles for this project).
+I'd like to thank Carlo for starting off the class with this example not only as a great introduction to Computer Vision, but also as an intuitive basis for understanding convolution. $\qquad _\blacksquare$
