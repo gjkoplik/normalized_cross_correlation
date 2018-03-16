@@ -119,7 +119,7 @@ $\vec{t} \bullet \vec{w}$ implies a smaller angle $\theta$ between $\vec{t}$ and
 
 Now, let's extend this idea of similarity of vectors to our detection problem.
 
-Let's start with a generic triangle, or <i><u>tempate</i></u>:
+Let's start with a generic triangle, or <i><u>template</i></u>:
 
 <center>
 ![](./images/template.png)
